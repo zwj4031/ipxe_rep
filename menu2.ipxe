@@ -1,0 +1,189 @@
+#!ipxe
+
+set boot-url http://${next-server}
+set iqn iqn.2008-08.com.starwindsoftware:test
+set nfs-server nfs://${next-server}
+set cifs-server //${next-server}
+set mytarget iscsi:${next-server}::::iqn.1991-05.com.microsoft:target1
+
+
+# Setup some basic convenience variables
+set menu-timeout 5000
+set submenu-timeout ${menu-timeout}
+
+# Ensure we have menu-default set to something
+isset ${menu-default} || set menu-default exit
+
+######## MAIN MENU ###################
+:start
+menu Welcome to iPXE's Boot Menu
+item
+item --gap -- ------------------------- Utilities ------------------------------
+item local80 boot 0x80
+item local81 boot 0x81
+item iso-sanboot_php    look for iso files and boot via sanboot
+item iso-memdisk_php    look for iso files and boot via memdisk
+item wimboot_php    look for wim files and boot via wimboot
+item iscsi	setup, sanhook or sanboot iscsi
+item linux Install Linux Distros
+item pxelinux pxelinux
+item grub4dos grub4dos
+item --gap -- ------------------------------ Advanced ---------------------------------
+item config       Configure settings
+item shell      Enter iPXE shell
+item reboot     Reboot
+item exit       Exit (boot local disk)
+choose --default exit --timeout 30000 target && goto ${target}
+
+########## UTILITY ITEMS ####################
+:local80
+sanboot --no-describe --drive 0x80
+
+:local81
+sanboot --no-describe --drive 0x81
+
+:shell
+echo Type exit to get the back to the menu
+shell
+set menu-timeout 0
+goto start
+
+:failed
+echo Booting failed, dropping to shell
+goto shell
+
+:reboot
+reboot
+
+:exit
+exit
+ 
+:config
+config
+goto start
+###########################################################
+:iso-sanboot_php
+chain ${boot-url}/iso-sanboot.php?_pxe/_iso || goto failed
+goto start 
+
+:iso-memdisk_php
+chain ${boot-url}/iso-memdisk.php?_pxe/_iso || goto failed
+goto start 
+
+:wimboot_php
+chain ${boot-url}/wimboot.php?_pxe// || goto failed
+goto start 
+
+###########################################################
+:pxelinux
+#dhcp
+dhcp net0
+#set 209:string pxelinux.cfg/default
+set 210:string tftp://${next-server}/
+#set 210:string tftp://${dhcp-server}/
+chain ${210:string}pxelinux.0 || goto failed
+goto start
+
+:grub4dos
+dhcp net0
+set 210:string tftp://${next-server}/
+#set 210:string tftp://${dhcp-server}/
+chain ${210:string}grldr || goto failed
+goto start
+###########################################################
+:iscsi
+menu iscsi
+item define_ define target
+item show_ show target
+item sanhook_ sanhook target
+item sanboot_ sanboot defined target
+item back Back to top menu...
+iseq ${menu-default} menu-recovery && isset ${submenu-default} && goto menu-recovery-timed ||
+choose selected && goto ${selected} || goto start
+:menu-recovery-timed
+choose --timeout ${submenu-timeout} --default ${submenu-default} selected && goto ${selected} || goto start
+
+:define_
+echo -n mytarget: && read mytarget
+goto start
+
+:show_
+echo ${mytarget}
+prompt a key to continue
+goto start
+
+:sanhook_
+sanhook ${mytarget}
+prompt a key to continue
+goto start
+
+:sanboot_
+sanboot --keep 
+goto start
+
+goto start
+
+###########################################################
+:linux
+menu Install Linux
+item ubuntu-installer-386		ubuntu-installer-i386 over internet (memdisk)
+item ubuntu-installer-amd64		ubuntu-installer-amd64 over internet (memdisk)
+item debian-installer-i386		debian-installer-i386 over internet (memdisk)
+item debian-installer-amd64		debian-installer-amd64 over internet (memdisk)
+item back Back to top menu...
+iseq ${menu-default} menu-recovery && isset ${submenu-default} && goto menu-recovery-timed ||
+choose selected && goto ${selected} || goto start
+:menu-recovery-timed
+choose --timeout ${submenu-timeout} --default ${submenu-default} selected && goto ${selected} || goto start
+
+#http://no.archive.ubuntu.com/ubuntu/dists/
+#https://doc.ubuntu-fr.org/versions
+:ubuntu-installer-i386
+initrd http://no.archive.ubuntu.com/ubuntu/dists/bionic/main/installer-i386/current/images/netboot/mini.iso
+chain ${boot-url}/memdisk iso || goto failed
+#or
+#kernel http://no.archive.ubuntu.com/ubuntu/dists/bionic/main/installer-i386/current/images/netboot/ubuntu-installer/i386/linux
+#initrd http://no.archive.ubuntu.com/ubuntu/dists/bionic/main/installer-i386/current/images/netboot/ubuntu-installer/i386/initrd.gz
+boot || goto failed
+goto start
+
+:ubuntu-installer-amd64
+initrd http://no.archive.ubuntu.com/ubuntu/dists/bionic/main/installer-amd64/current/images/netboot/mini.iso
+chain ${boot-url}/memdisk iso || goto failed
+#or
+#kernel http://no.archive.ubuntu.com/ubuntu/dists/bionic/main/installer-amd64/current/images/netboot/ubuntu-installer/amd64/linux
+#initrd http://no.archive.ubuntu.com/ubuntu/dists/bionic/main/installer-amd64/current/images/netboot/ubuntu-installer/amd64/initrd.gz
+boot || goto failed
+goto start
+
+:debian-installer-i386
+initrd http://debian.mirrors.ovh.net/debian/dists/stable/main/installer-i386/current/images/netboot/mini.iso
+chain ${boot-url}/memdisk iso raw || goto failed
+#or
+#kernel http://debian.mirrors.ovh.net/debian/dists/stable/main/installer-i386/current/images/netboot/debian-installer/i386/linux
+#initrd http://debian.mirrors.ovh.net/debian/dists/stable/main/installer-i386/current/images/netboot/debian-installer/i386/initrd.gz
+
+:debian-installer-amd64
+initrd http://debian.mirrors.ovh.net/debian/dists/stable/main/installer-amd64/current/images/netboot/mini.iso
+chain ${boot-url}/memdisk iso raw || goto failed
+#or
+#kernel http://debian.mirrors.ovh.net/debian/dists/stable/main/installer-amd64/current/images/netboot/debian-installer/amd64/linux
+#initrd http://debian.mirrors.ovh.net/debian/dists/stable/main/installer-amd64/current/images/netboot/debian-installer/amd64/initrd.gz
+
+
+goto start
+
+#######################################################
+  
+#Memdisk via iPXE vs. ISO Boot HTTP via iPXE:
+#
+#Memdisk via iPXE does the following things: 
+#1) Emulates a CD-ROM allowing a Network-Based Install. 
+#2) Masks actual system RAM because the environment memdisk creates "hides" a certain amount of RAM to allow for the ISO - This amount is generally 2x ISO Size (Maximum 2GB - I think).
+#3) Preloads the ISO into memory before executing the ISO. This slows boot time a bit.
+#
+#ISO Boot over HTTP via iPXE:
+#1) Does not emulate a CD-ROM. It is a Block Device.
+#2) Does not mask system RAM.
+#3) Executes as it reads: Faster than memdisk and no "preloading" of the ISO is required.
+#4) Does not hold the ISO as a readable device once the ISO is loaded unless loaded into the iBFT.
